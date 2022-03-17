@@ -32,6 +32,7 @@ struct mgos_gpio_state {
     struct {
       unsigned int on_ms : 16;
       unsigned int off_ms : 16;
+      unsigned int loops : -1;
       mgos_timer_id timer_id;
     } blink;
     struct {
@@ -266,7 +267,12 @@ static void mgos_gpio_blink_timer_cb(void *arg) {
   struct mgos_gpio_state *s = mgos_gpio_get_state(pin);
   if (s != NULL) {
     bool cur = mgos_gpio_toggle(pin);
-    if (s->blink.on_ms != s->blink.off_ms) {
+    if (s->blink.loops > 0) s->blink.loops--;
+    if (s->blink.loops == 0 && s->blink.timer_id != MGOS_INVALID_TIMER_ID) {
+      mgos_clear_timer(s->blink.timer_id);
+      s->blink.timer_id = MGOS_INVALID_TIMER_ID;
+    }
+    if (s->blink.on_ms != s->blink.off_ms && s->blink.loops != 0) {
       int timeout = (cur ? s->blink.on_ms : s->blink.off_ms);
       s->blink.timer_id = mgos_set_timer(timeout, 0, mgos_gpio_blink_timer_cb,
                                          (void *) (intptr_t) pin);
@@ -275,7 +281,7 @@ static void mgos_gpio_blink_timer_cb(void *arg) {
   mgos_runlock(s_lock);
 }
 
-bool mgos_gpio_blink(int pin, int on_ms, int off_ms) {
+bool mgos_gpio_blink(int pin, int on_ms, int off_ms, int loops = -1) {
   bool res = !(on_ms < 0 || off_ms < 0 || on_ms >= 65536 || off_ms >= 65536);
   if (res) {
     mgos_rlock(s_lock);
@@ -283,6 +289,7 @@ bool mgos_gpio_blink(int pin, int on_ms, int off_ms) {
     if (s != NULL) {
       s->blink.on_ms = on_ms;
       s->blink.off_ms = off_ms;
+      if (loops > 0) s->blink.loops = loops * 2;
       if (s->blink.timer_id != MGOS_INVALID_TIMER_ID) {
         mgos_clear_timer(s->blink.timer_id);
         s->blink.timer_id = MGOS_INVALID_TIMER_ID;
